@@ -47,12 +47,12 @@ export default function App() {
   const [documents, setDocuments] = useState([]);
   const [activeDocId, setActiveDocId] = useState(null);
   const [zoomScale, setZoomScale] = useState(1);
-  const [mobileView, setMobileView] = useState('list'); // 'list', 'preview', 'edit'
+  const [mobileView, setMobileView] = useState('list');
+  const [isDragging, setIsDragging] = useState(false); // 追蹤是否正在拖曳檔案
   
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null); 
 
-  // 當使用者點擊單據時，如果是手機版，自動切換到預覽
   useEffect(() => {
     if (activeDocId && window.innerWidth < 768 && mobileView === 'list') {
       setMobileView('preview');
@@ -108,6 +108,28 @@ export default function App() {
     setDocuments(prev => [...prev, ...newDocs]);
     if (!activeDocId) setActiveDocId(newDocs[0].id);
     newDocs.forEach(doc => processDocument(doc.id, doc.file));
+  };
+
+  // 處理拖放事件
+  const onDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const onDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFiles(e.dataTransfer.files);
+    }
   };
 
   const compressImage = (file, maxWidth = 1800) => {
@@ -167,7 +189,6 @@ export default function App() {
     setDocuments(prev => prev.map(doc => {
       if (doc.id === activeDocId && doc.ocrData) {
         const newData = { ...doc.ocrData, [field]: value };
-        // 若修改未稅金額或稅額，自動更新總計 (選用功能)
         if (field === 'pre_tax_amount' || field === 'tax_amount') {
           newData.total_amount = (parseFloat(newData.pre_tax_amount) || 0) + (parseFloat(newData.tax_amount) || 0);
         }
@@ -216,7 +237,7 @@ export default function App() {
   };
 
   // ==========================================
-  // 4. UI 渲染 (均分布局)
+  // 4. UI 渲染
   // ==========================================
   return (
     <div className="flex flex-col h-screen bg-[#F8FAFC] font-sans text-[#4C566A] overflow-hidden">
@@ -247,23 +268,35 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Layout */}
       <main className="flex flex-1 overflow-hidden relative">
         
-        {/* Column 1: 上傳佇列 */}
+        {/* Column 1: 上傳佇列 (支援拖放) */}
         <section className={`flex-1 bg-white border-r border-[#E5E9F0] flex flex-col min-w-0 transition-all duration-300 ${mobileView !== 'list' ? 'hidden md:flex' : 'flex'}`}>
           <div className="p-4 grid grid-cols-2 gap-3 shrink-0">
-            <button onClick={() => fileInputRef.current.click()} className="p-4 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center bg-white hover:bg-slate-50 hover:border-[#7692B4] transition-all active:scale-95">
+            {/* 檔案上傳按鈕 (支援拖放) */}
+            <button 
+              onClick={() => fileInputRef.current.click()} 
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
+              className={`p-4 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center transition-all active:scale-95 ${
+                isDragging 
+                  ? 'border-[#7692B4] bg-[#F0F4F8] scale-[1.02]' 
+                  : 'border-gray-200 bg-white hover:bg-slate-50 hover:border-[#7692B4]'
+              }`}
+            >
               <input type="file" ref={fileInputRef} onChange={(e) => handleFiles(e.target.files)} className="hidden" accept="image/*" multiple />
-              <Plus size={24} className="text-[#8F9CAE] mb-1" /><span className="text-xs font-bold text-slate-600">檔案上傳</span>
+              <Plus size={24} className={`mb-1 ${isDragging ? 'text-[#7692B4]' : 'text-[#8F9CAE]'}`} />
+              <span className="text-xs font-bold text-slate-600">{isDragging ? '放開上傳' : '檔案上傳'}</span>
             </button>
+
             <button onClick={() => cameraInputRef.current.click()} className="p-4 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-center justify-center bg-white hover:bg-slate-50 hover:border-[#8EBAA3] transition-all active:scale-95">
               <input type="file" ref={cameraInputRef} onChange={(e) => handleFiles(e.target.files)} className="hidden" accept="image/*" capture="environment" multiple />
               <Camera size={24} className="text-[#8F9CAE] mb-1" /><span className="text-xs font-bold text-slate-600">相機拍攝</span>
             </button>
           </div>
           
-          <div className="px-4 pb-2 border-b border-gray-50 flex justify-between items-center"><h3 className="text-[11px] font-black text-[#64748B] uppercase tracking-widest tracking-wider">已上傳項目</h3></div>
+          <div className="px-4 pb-2 border-b border-gray-50 flex justify-between items-center"><h3 className="text-[11px] font-black text-[#64748B] uppercase tracking-widest">已上傳項目</h3></div>
           
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 custom-scrollbar">
             {documents.map((doc) => (
