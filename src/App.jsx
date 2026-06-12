@@ -38,7 +38,17 @@ const SYSTEM_PROMPT = `
 }
 `;
 
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwanlx4zU2P0gyynvEcplWYMrrj2X8uyUoeqaXrobgOuiPEFJHUef8qlZX8Z0ORLQtZ/exec"; 
+const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwanlx4zU2P0gyynvEcplWYMrrj2X8uyUoeqaXrobgOuiPEFJHUef8qlZX8Z0ORLQtZ/exec";
+
+const FIELD_LABELS = {
+  invoice_number: '發票號碼',
+  date: '日期',
+  seller_name: '賣方名稱',
+  seller_tax_id: '賣方統編',
+  buyer_name: '公司抬頭（買方）',
+  buyer_tax_id: '買方統編',
+  remarks: '備註',
+};
 
 export default function App() {
   // ==========================================
@@ -51,18 +61,36 @@ export default function App() {
   const [isDragging, setIsDragging] = useState(false); // 追蹤是否正在拖曳檔案
   
   const fileInputRef = useRef(null);
-  const cameraInputRef = useRef(null); 
+  const cameraInputRef = useRef(null);
+  const documentsRef = useRef(documents);
 
+  // 保持 ref 與 state 同步，供 unmount cleanup 使用
+  useEffect(() => { documentsRef.current = documents; }, [documents]);
+
+  // unmount 時釋放所有 Blob URL
+  useEffect(() => () => {
+    documentsRef.current.forEach(d => URL.revokeObjectURL(d.previewUrl));
+  }, []);
+
+  // 手機：選到文件時切到預覽
   useEffect(() => {
     if (activeDocId && window.innerWidth < 768 && mobileView === 'list') {
       setMobileView('preview');
     }
-  }, [activeDocId]);
+  }, [activeDocId, mobileView]);
+
+  // 手機：OCR 完成或失敗後自動跳到核對 tab
+  useEffect(() => {
+    if (!activeDocId || window.innerWidth >= 768) return;
+    const doc = documents.find(d => d.id === activeDocId);
+    if (doc?.status === 'reviewing' || doc?.status === 'error') setMobileView('edit');
+  }, [documents, activeDocId]);
 
   const stats = useMemo(() => {
     let totalDocs = documents.length;
     let totalAmount = 0;
     let pendingCount = 0;
+    let reviewingCount = 0;
     documents.forEach(doc => {
       if (doc.status === 'completed' && doc.ocrData) {
         totalAmount += Number(doc.ocrData.total_amount) || 0;
@@ -70,8 +98,9 @@ export default function App() {
       if (doc.status === 'processing' || doc.status === 'reviewing' || doc.status === 'saving') {
         pendingCount++;
       }
+      if (doc.status === 'reviewing') reviewingCount++;
     });
-    return { totalDocs, totalAmount, pendingCount };
+    return { totalDocs, totalAmount, pendingCount, reviewingCount };
   }, [documents]);
 
   const activeDoc = documents.find(d => d.id === activeDocId);
@@ -133,12 +162,14 @@ export default function App() {
   };
 
   const compressImage = (file, maxWidth = 1800) => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
+      reader.onerror = () => reject(new Error('檔案讀取失敗'));
       reader.onload = (e) => {
         const img = new Image();
         img.src = e.target.result;
+        img.onerror = () => reject(new Error('圖片解析失敗'));
         img.onload = () => {
           let w = img.width, h = img.height;
           if (w > maxWidth) { h = Math.round((h * maxWidth) / w); w = maxWidth; }
@@ -160,28 +191,31 @@ export default function App() {
       setDocuments(prev => prev.map(d => d.id === id ? { ...d, base64, mimeType } : d));
       const payload = { action: 'parse', base64, mimeType, prompt: SYSTEM_PROMPT };
       const response = await fetch(GAS_WEB_APP_URL, { method: 'POST', body: JSON.stringify(payload) });
+      if (!response.ok) throw new Error(`伺服器錯誤 (HTTP ${response.status})`);
       const result = await response.json();
       if (result.success) {
         setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'reviewing', ocrData: result.data } : d));
-      } else { throw new Error(result.error); }
+      } else { throw new Error(result.error || 'GAS 回傳失敗'); }
     } catch (err) {
-      setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'error', error: '解析失敗' } : d));
+      setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'error', error: err.message || '解析失敗' } : d));
     }
   };
 
   const confirmAndSave = async (id) => {
     const doc = documents.find(d => d.id === id);
-    if (!doc) return;
+    if (!doc || doc.status !== 'reviewing') return;
     setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'saving' } : d));
     try {
       const payload = { action: 'save', ocrData: doc.ocrData, base64: doc.base64 };
       const res = await fetch(GAS_WEB_APP_URL, { method: 'POST', body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error(`伺服器錯誤 (HTTP ${res.status})`);
       const result = await res.json();
       if (result.success) {
         setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'completed' } : d));
+        if (window.innerWidth < 768) setMobileView('list');
       } else { throw new Error(result.error); }
     } catch (err) {
-      setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'error', error: '存檔失敗' } : d));
+      setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'error', error: err.message || '存檔失敗' } : d));
     }
   };
 
@@ -212,6 +246,12 @@ export default function App() {
     }));
   };
 
+  const retryDocument = (id) => {
+    const doc = documents.find(d => d.id === id);
+    if (!doc?.file) return;
+    processDocument(id, doc.file);
+  };
+
   const exportAllToCSV = () => {
     const completedDocs = documents.filter(d => d.status === 'completed' && d.ocrData);
     if (completedDocs.length === 0) return;
@@ -219,9 +259,11 @@ export default function App() {
     csvContent += "單據類型,日期,發票號碼,賣方名稱,賣方統編,公司抬頭,買方統編,總計金額,備註,檔名,品名,IMEI,數量,單價,小計\n";
     completedDocs.forEach(doc => {
       const data = doc.ocrData;
-      const baseInfo = [data.document_type, data.date, data.invoice_number, `"${data.seller_name}"`, data.seller_tax_id, `"${data.buyer_name}"`, data.buyer_tax_id, data.total_amount, `"${data.remarks}"`, `"${data.seller_name}_${data.invoice_number}.jpg"`].join(",");
-      data.items.forEach(item => {
-        csvContent += baseInfo + `, "${item.product_name}", "${item.item_remark}", ${item.quantity}, ${item.unit_price}, ${item.subtotal}\n`;
+      const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const baseInfo = [data.document_type, data.date, data.invoice_number, esc(data.seller_name), data.seller_tax_id, esc(data.buyer_name), data.buyer_tax_id, data.total_amount, esc(data.remarks), esc(`${data.seller_name}_${data.invoice_number}.jpg`)].join(",");
+      const items = Array.isArray(data.items) && data.items.length > 0 ? data.items : [{}];
+      items.forEach(item => {
+        csvContent += baseInfo + `,${esc(item.product_name)},${esc(item.item_remark)},${item.quantity ?? 0},${item.unit_price ?? 0},${item.subtotal ?? 0}\n`;
       });
     });
     const link = document.createElement("a");
@@ -248,7 +290,7 @@ export default function App() {
           <div className="bg-[#7692B4] text-white p-1.5 md:p-2 rounded-lg shadow-sm"><Receipt size={18} /></div>
           <div>
             <h1 className="text-sm md:text-lg font-bold text-[#1E293B] tracking-tight whitespace-nowrap">馬尼通訊 發票辨識系統</h1>
-            <p className="hidden md:block text-[10px] text-[#64748B] font-mono tracking-widest uppercase font-semibold">Accounting Smart Solutions</p>
+            <p className="hidden md:block text-[10px] text-[#64748B] font-mono tracking-widest uppercase font-semibold">馬尼通訊 財會專用系統</p>
           </div>
         </div>
         
@@ -313,7 +355,7 @@ export default function App() {
                     </div>
                   </div>
                   <ChevronRight size={16} className="md:hidden text-slate-300" />
-                  <button onClick={(e) => { e.stopPropagation(); setDocuments(d => d.filter(x => x.id !== doc.id)); if(activeDocId === doc.id) setActiveDocId(null); }} className="p-1 text-slate-300 hover:text-red-500 ml-2"><Trash2 size={16} /></button>
+                  <button onClick={(e) => { e.stopPropagation(); URL.revokeObjectURL(doc.previewUrl); setDocuments(d => d.filter(x => x.id !== doc.id)); if(activeDocId === doc.id) setActiveDocId(null); }} className="p-1 text-slate-300 hover:text-red-500 ml-2"><Trash2 size={16} /></button>
                 </div>
               </div>
             ))}
@@ -352,13 +394,20 @@ export default function App() {
             <div className="flex-1 flex flex-col items-center justify-center text-slate-300 p-12 text-center opacity-40"><FolderTree size={64} /><p className="font-black mt-4">選擇單據進行核對</p></div>
           ) : activeDoc.status === 'processing' ? (
             <div className="flex-1 flex flex-col items-center justify-center text-[#7692B4] p-8 text-center"><Loader2 size={56} className="animate-spin mb-6 opacity-80" /><p className="text-xl font-black text-[#1E293B]">AI 解析中...</p></div>
+          ) : activeDoc.status === 'error' ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+              <AlertCircle size={56} className="text-red-400 mb-4" />
+              <p className="text-xl font-black text-[#1E293B] mb-2">解析失敗</p>
+              <p className="text-sm text-slate-500 mb-6">{activeDoc.error || '請確認圖片清晰，或重試一次'}</p>
+              <button onClick={() => retryDocument(activeDoc.id)} className="bg-[#7692B4] text-white font-black px-6 py-3 rounded-xl shadow-sm active:scale-95 transition-all">重新解析</button>
+            </div>
           ) : (
             <div className="p-5 md:p-6 space-y-6 overflow-y-auto custom-scrollbar pb-32">
               <div className="flex items-center justify-between border-b border-gray-100 pb-4 shrink-0">
                 <h2 className="text-xl font-black text-[#1E293B] flex items-center gap-2">🤖 解析結果</h2>
                 <span className="px-2 py-1 rounded bg-blue-50 text-blue-700 font-black text-[10px] uppercase border border-blue-100">{activeDoc.ocrData?.document_type || '單據'}</span>
               </div>
-              
+
               <div className="space-y-6">
                 {activeDoc.status === 'completed' ? (
                   <div className="bg-green-50 p-4 rounded-xl border border-green-200 flex items-start gap-3"><CheckCircle className="text-green-600" size={18} /><div><p className="text-sm text-green-800 font-black">已成功寫入雲端</p><p className="text-[10px] text-green-700 font-bold mt-1 break-all uppercase leading-tight">{archivePath?.folder}</p></div></div>
@@ -368,9 +417,9 @@ export default function App() {
 
                 <div className="space-y-4">
                   <p className="text-[10px] font-black text-[#7692B4] uppercase tracking-widest flex items-center gap-2"><span className="h-px flex-1 bg-[#E2E8F0]"></span> 表頭核心資訊 <span className="h-px flex-1 bg-[#E2E8F0]"></span></p>
-                  {['invoice_number', 'date', 'seller_name', 'seller_tax_id', 'buyer_name', 'buyer_tax_id'].map((field) => (
+                  {['invoice_number', 'date', 'seller_name', 'seller_tax_id', 'buyer_name', 'buyer_tax_id', 'remarks'].map((field) => (
                     <div key={field} className="space-y-1">
-                      <label className="text-[10px] font-black text-slate-500 uppercase ml-1">{field.replace(/_/g, ' ')}</label>
+                      <label className="text-[10px] font-black text-slate-500 ml-1">{FIELD_LABELS[field]}</label>
                       <input value={activeDoc.ocrData?.[field] || ''} onChange={(e) => updateActiveDocData(field, e.target.value)} readOnly={activeDoc.status === 'completed'} className={getInputClass(activeDoc.ocrData?.[field], ['invoice_number', 'date', 'seller_tax_id', 'buyer_name'].includes(field))} />
                     </div>
                   ))}
@@ -379,12 +428,12 @@ export default function App() {
                 <div className="space-y-4 pt-4">
                   <p className="text-[10px] font-black text-[#7692B4] uppercase tracking-widest flex items-center gap-2"><span className="h-px flex-1 bg-[#E2E8F0]"></span> 金額與明細 <span className="h-px flex-1 bg-[#E2E8F0]"></span></p>
                   <div className="bg-[#1E293B] p-5 rounded-2xl shadow-xl shadow-slate-900/10 mb-4">
-                    <div className="flex justify-between items-center"><label className="text-xs font-black text-slate-400">TOTAL (NT$)</label><input type="number" value={activeDoc.ocrData?.total_amount || ''} readOnly={activeDoc.status === 'completed'} onChange={(e) => updateActiveDocData('total_amount', e.target.value)} className="bg-transparent text-right text-white text-3xl font-black w-full outline-none tracking-tighter" /></div>
+                    <div className="flex justify-between items-center"><label className="text-xs font-black text-slate-400">含稅總計（NT$）</label><input type="number" value={activeDoc.ocrData?.total_amount || ''} readOnly={activeDoc.status === 'completed'} onChange={(e) => updateActiveDocData('total_amount', e.target.value)} className="bg-transparent text-right text-white text-3xl font-black w-full outline-none tracking-tighter" /></div>
                   </div>
-                  
+
                   <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                     <table className="w-full text-left text-[11px]">
-                      <thead className="bg-slate-50 border-b"><tr><th className="p-2 font-black text-gray-500 uppercase">ITEM/IMEI</th><th className="p-2 text-right font-black text-gray-500 uppercase">SUBTOTAL</th></tr></thead>
+                      <thead className="bg-slate-50 border-b"><tr><th className="p-2 font-black text-gray-500">品名 / IMEI</th><th className="p-2 text-right font-black text-gray-500">小計</th></tr></thead>
                       <tbody className="divide-y divide-slate-100">
                         {activeDoc.ocrData?.items?.map((item, idx) => (
                           <tr key={idx} className="hover:bg-slate-50">
@@ -401,11 +450,10 @@ export default function App() {
                 </div>
               </div>
 
-              {activeDoc.status === 'reviewing' && (
+              {(activeDoc.status === 'reviewing' || activeDoc.status === 'saving') && (
                 <div className="fixed md:absolute bottom-20 md:bottom-0 left-0 right-0 p-4 md:p-6 bg-white/95 backdrop-blur border-t border-slate-100 z-30">
-                  <button onClick={() => confirmAndSave(activeDoc.id)} className="w-full bg-[#2F855A] hover:bg-[#276749] text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl transition-all active:scale-[0.98] text-lg">
-                    {activeDoc.status === 'saving' ? <Loader2 className="animate-spin" /> : <CloudUpload size={22} />}
-                    確認無誤，寫入雲端入帳
+                  <button onClick={() => confirmAndSave(activeDoc.id)} disabled={activeDoc.status === 'saving'} className="w-full bg-[#2F855A] hover:bg-[#276749] disabled:opacity-60 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl transition-all active:scale-[0.98] text-lg">
+                    {activeDoc.status === 'saving' ? <><Loader2 size={22} className="animate-spin" />存檔中...</> : <><CloudUpload size={22} />確認無誤，寫入雲端入帳</>}
                   </button>
                 </div>
               )}
@@ -423,7 +471,13 @@ export default function App() {
           <ImageIcon size={20} strokeWidth={mobileView === 'preview' ? 3 : 2} /><span className="text-[9px] font-black uppercase">單據</span>
         </button>
         <button onClick={() => setMobileView('edit')} className={`flex flex-col items-center gap-1 flex-1 ${mobileView === 'edit' ? 'text-[#7692B4]' : 'text-slate-300'}`}>
-          <Search size={20} strokeWidth={mobileView === 'edit' ? 3 : 2} /><span className="text-[9px] font-black uppercase">核對</span>
+          <div className="relative">
+            <Search size={20} strokeWidth={mobileView === 'edit' ? 3 : 2} />
+            {stats.reviewingCount > 0 && (
+              <span className="absolute -top-1.5 -right-2 bg-red-500 text-white text-[8px] font-black rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5">{stats.reviewingCount}</span>
+            )}
+          </div>
+          <span className="text-[9px] font-black uppercase">核對</span>
         </button>
       </footer>
 
