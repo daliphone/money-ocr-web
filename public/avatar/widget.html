@@ -93,7 +93,7 @@
         <input id="type-input" type="text" maxlength="200" placeholder="打字問我也可以…" aria-label="輸入文字問題" />
         <button class="ctrl primary" id="btn-send" aria-label="送出文字問題"><span aria-hidden="true">➤</span></button>
       </div>
-      <div class="dock-row" role="toolbar" aria-label="虛擬人控制列">
+      <div class="dock-row" role="toolbar" aria-label="虛擬人控制列" style="display:none">
       <button class="ctrl primary" id="btn-mic"   aria-label="開始語音對話"><span aria-hidden="true">🎤</span> 說話</button>
       <button class="ctrl" id="btn-llm"   aria-label="啟用瀏覽器內 AI 大腦（首次需下載模型）" aria-pressed="false"><span aria-hidden="true">🧠</span></button>
       <button class="ctrl" id="btn-mute"  aria-label="靜音" aria-pressed="false"><span aria-hidden="true">🔊</span></button>
@@ -456,7 +456,7 @@
   (function renderSuggestions() {
     const box = document.getElementById('suggestions');
     if (!box) return;
-    const SUGGESTIONS = ['怎麼安裝？', '怎麼換成我的角色？', '要不要錢？', '麥克風怎麼用？', '我可以說什麼？'];
+    const SUGGESTIONS = ['第一步怎麼開始？', '拍完之後呢？', '核對頁面怎麼用？', '辨識失敗怎麼辦？', '下載批次Excel？'];
     const label = document.createElement('div'); label.className = 'sg-label'; label.textContent = '💬 你可以問我：';
     box.appendChild(label);
     SUGGESTIONS.forEach((s) => {
