@@ -262,7 +262,7 @@ export default function App() {
   };
 
   const exportAllToCSV = () => {
-    const completedDocs = documents.filter(d => d.status === 'completed' && d.ocrData);
+    const completedDocs = documents.filter(d => (d.status === 'completed' || d.status === 'reviewing') && d.ocrData);
     if (completedDocs.length === 0) return;
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
     csvContent += "單據類型,日期,發票號碼,賣方名稱,賣方統編,公司抬頭,買方統編,總計金額,備註,檔名,品名,IMEI,數量,單價,小計\n";
