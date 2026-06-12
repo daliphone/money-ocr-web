@@ -470,14 +470,14 @@ export default function App() {
         <button onClick={() => setMobileView('preview')} className={`flex flex-col items-center gap-1 flex-1 ${mobileView === 'preview' ? 'text-[#7692B4]' : 'text-slate-300'}`}>
           <ImageIcon size={20} strokeWidth={mobileView === 'preview' ? 3 : 2} /><span className="text-[9px] font-black uppercase">單據</span>
         </button>
-        <button onClick={() => setMobileView('edit')} className={`flex flex-col items-center gap-1 flex-1 ${mobileView === 'edit' ? 'text-[#7692B4]' : 'text-slate-300'}`}>
-          <div className="relative">
+        <button onClick={() => setMobileView('edit')} className={`flex flex-col items-center gap-1 flex-1 transition-colors ${mobileView === 'edit' ? 'text-[#7692B4]' : stats.reviewingCount > 0 ? 'text-red-500' : 'text-slate-300'}`}>
+          <div className={`relative ${stats.reviewingCount > 0 && mobileView !== 'edit' ? 'animate-bounce' : ''}`}>
             <Search size={20} strokeWidth={mobileView === 'edit' ? 3 : 2} />
             {stats.reviewingCount > 0 && (
               <span className="absolute -top-1.5 -right-2 bg-red-500 text-white text-[8px] font-black rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5">{stats.reviewingCount}</span>
             )}
           </div>
-          <span className="text-[9px] font-black uppercase">核對</span>
+          <span className={`text-[9px] font-black uppercase ${stats.reviewingCount > 0 && mobileView !== 'edit' ? 'animate-pulse' : ''}`}>核對</span>
         </button>
       </footer>
 
