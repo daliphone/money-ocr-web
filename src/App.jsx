@@ -440,21 +440,27 @@ export default function App() {
                     <div className="flex justify-between items-center"><label className="text-xs font-black text-slate-400">含稅總計（NT$）</label><input type="number" value={activeDoc.ocrData?.total_amount || ''} readOnly={activeDoc.status === 'completed'} onChange={(e) => updateActiveDocData('total_amount', e.target.value)} className="bg-transparent text-right text-white text-3xl font-black w-full outline-none tracking-tighter" /></div>
                   </div>
 
-                  <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                    <table className="w-full text-left text-[11px]">
-                      <thead className="bg-slate-50 border-b"><tr><th className="p-2 font-black text-gray-500">品名 / IMEI</th><th className="p-2 text-right font-black text-gray-500">小計</th></tr></thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {activeDoc.ocrData?.items?.map((item, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50">
-                            <td className="p-2">
-                              <textarea value={item.product_name || ''} readOnly={activeDoc.status === 'completed'} onChange={(e) => updateActiveDocItem(idx, 'product_name', e.target.value)} className="w-full bg-transparent text-[#1E293B] font-bold outline-none resize-none h-8 p-0.5" />
-                              <input value={item.item_remark || ''} readOnly={activeDoc.status === 'completed'} onChange={(e) => updateActiveDocItem(idx, 'item_remark', e.target.value)} className="w-full bg-blue-50 text-[#2C5282] text-[9px] font-black rounded px-1.5 py-0.5 mt-1 outline-none" placeholder="IMEI碼" />
-                            </td>
-                            <td className="p-2 align-top text-right font-black text-slate-700">{(item.subtotal || 0).toLocaleString()}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="space-y-2">
+                    {activeDoc.ocrData?.items?.map((item, idx) => (
+                      <div key={idx} className="bg-white border border-slate-200 rounded-xl p-3 space-y-2">
+                        <textarea value={item.product_name || ''} readOnly={activeDoc.status === 'completed'} onChange={(e) => updateActiveDocItem(idx, 'product_name', e.target.value)} rows={2} className="w-full bg-slate-50 text-[#1E293B] text-xs font-bold outline-none resize-none rounded-lg px-2 py-1.5 border border-slate-100 focus:border-[#7692B4]" placeholder="品名" />
+                        <input value={item.item_remark || ''} readOnly={activeDoc.status === 'completed'} onChange={(e) => updateActiveDocItem(idx, 'item_remark', e.target.value)} className="w-full bg-blue-50 text-[#2C5282] text-[10px] font-black rounded-lg px-2 py-1 outline-none border border-blue-100 focus:border-blue-300" placeholder="IMEI / 備註" />
+                        <div className="grid grid-cols-3 gap-2">
+                          <div>
+                            <p className="text-[9px] font-black text-slate-400 mb-1">數量</p>
+                            <input type="number" value={item.quantity ?? ''} readOnly={activeDoc.status === 'completed'} onChange={(e) => updateActiveDocItem(idx, 'quantity', e.target.value)} className="w-full bg-slate-50 text-center text-sm font-black text-[#1E293B] rounded-lg px-1 py-1.5 outline-none border border-slate-100 focus:border-[#7692B4]" />
+                          </div>
+                          <div>
+                            <p className="text-[9px] font-black text-slate-400 mb-1">單價</p>
+                            <input type="number" value={item.unit_price ?? ''} readOnly={activeDoc.status === 'completed'} onChange={(e) => updateActiveDocItem(idx, 'unit_price', e.target.value)} className="w-full bg-slate-50 text-center text-sm font-black text-[#1E293B] rounded-lg px-1 py-1.5 outline-none border border-slate-100 focus:border-[#7692B4]" />
+                          </div>
+                          <div>
+                            <p className="text-[9px] font-black text-slate-400 mb-1">金額</p>
+                            <div className="bg-[#1E293B] text-white text-center text-sm font-black rounded-lg px-1 py-1.5">{(item.subtotal || 0).toLocaleString()}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
