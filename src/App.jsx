@@ -184,8 +184,9 @@ export default function App() {
     });
   };
 
-  const processDocument = async (id, file) => {
-    setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'processing' } : d));
+  const processDocument = async (id, file, retryCount = 0) => {
+    const retryMsg = retryCount > 0 ? `Gemini 繁忙，重試中 (${retryCount}/2)...` : 'AI 解析中...';
+    setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'processing', processingMsg: retryMsg } : d));
     try {
       const { base64, mimeType } = await compressImage(file);
       setDocuments(prev => prev.map(d => d.id === id ? { ...d, base64, mimeType } : d));
@@ -194,10 +195,18 @@ export default function App() {
       if (!response.ok) throw new Error(`伺服器錯誤 (HTTP ${response.status})`);
       const result = await response.json();
       if (result.success) {
-        setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'reviewing', ocrData: result.data } : d));
-      } else { throw new Error(result.error || 'GAS 回傳失敗'); }
+        setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'reviewing', ocrData: result.data, processingMsg: null } : d));
+      } else {
+        const errMsg = result.error || 'GAS 回傳失敗';
+        const is503 = errMsg.includes('503') || errMsg.includes('UNAVAILABLE') || errMsg.includes('high demand');
+        if (is503 && retryCount < 2) {
+          await new Promise(r => setTimeout(r, 5000));
+          return processDocument(id, file, retryCount + 1);
+        }
+        throw new Error(is503 ? 'Gemini 目前繁忙，請稍後重試' : errMsg);
+      }
     } catch (err) {
-      setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'error', error: err.message || '解析失敗' } : d));
+      setDocuments(prev => prev.map(d => d.id === id ? { ...d, status: 'error', error: err.message || '解析失敗', processingMsg: null } : d));
     }
   };
 
@@ -393,7 +402,7 @@ export default function App() {
           {!activeDoc ? (
             <div className="flex-1 flex flex-col items-center justify-center text-slate-300 p-12 text-center opacity-40"><FolderTree size={64} /><p className="font-black mt-4">選擇單據進行核對</p></div>
           ) : activeDoc.status === 'processing' ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-[#7692B4] p-8 text-center"><Loader2 size={56} className="animate-spin mb-6 opacity-80" /><p className="text-xl font-black text-[#1E293B]">AI 解析中...</p></div>
+            <div className="flex-1 flex flex-col items-center justify-center text-[#7692B4] p-8 text-center"><Loader2 size={56} className="animate-spin mb-6 opacity-80" /><p className="text-xl font-black text-[#1E293B]">{activeDoc.processingMsg || 'AI 解析中...'}</p></div>
           ) : activeDoc.status === 'error' ? (
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
               <AlertCircle size={56} className="text-red-400 mb-4" />
