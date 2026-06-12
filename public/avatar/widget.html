@@ -432,7 +432,7 @@
       model.on('hit', () => onTap());
       document.getElementById('avatar-canvas').addEventListener('pointerdown', onTap);
 
-      setTimeout(() => showBubble('點 🎤 說話、或直接打字問我；想更聰明可按 🧠 啟用 AI 大腦 👋'), 700);
+      setTimeout(() => speak('你好！我是馬尼通訊發票辨識助理，點下方問題可以了解操作流程！'), 800);
       postToParent('ready');
       window.__avatarModel = model;
     } catch (err) {
@@ -446,7 +446,7 @@
     onTap._lock = true;
     setTimeout(() => { onTap._lock = false; }, 400);
     if (model) try { model.motion('Tap'); } catch (e) {}
-    speak('你好～我是可以嵌入任何網站的語音虛擬人，問我怎麼安裝、怎麼換成你的角色都行！');
+    speak('需要幫忙嗎？點下方問題就能了解操作步驟！');
   }
 
   // ===== 控制列 =====
